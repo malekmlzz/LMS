@@ -1,4 +1,4 @@
-name: Build Android APK (Native)
+name: Build Android APK (Clean Build)
 
 on:
   push:
@@ -14,7 +14,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '18'
-      
+          cache: 'npm'
+          
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -24,18 +25,27 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
       
-      - name: Install dependencies
-        run: npm ci
+      - name: Clean npm cache and install dependencies
+        run: |
+          npm cache clean --force
+          rm -rf node_modules
+          npm install
       
+      - name: Clean Gradle cache
+        run: |
+          rm -rf ~/.gradle/caches/
+          rm -rf android/.gradle
+          
       - name: Generate Android project
         run: npx expo prebuild --platform android --clean
       
-      - name: Build APK with Gradle
+      - name: Build APK with Gradle (Clean)
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease --stacktrace
-      
+          ./gradlew clean
+          ./gradlew assembleRelease --no-build-cache --stacktrace
+          
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

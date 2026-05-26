@@ -1,4 +1,4 @@
-name: Build Android APK (Without EAS)
+name: Build Android APK
 
 on:
   push:
@@ -26,6 +26,9 @@ jobs:
       
       - name: Install dependencies
         run: npm ci
+      
+      - name: Disable New Architecture
+        run: echo "newArchEnabled=false" >> android/gradle.properties
       
       - name: Generate Android project
         run: npx expo prebuild --platform android --clean

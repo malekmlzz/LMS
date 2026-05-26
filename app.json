@@ -1,29 +1,35 @@
 {
   "expo": {
-    "name": "LMS",
+    "name": "مدیریت مدرسه",
     "slug": "LMS",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/logonomy.jpeg",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/logonomy.jpeg",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#4F46E5"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.malekmlzz.LMS"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+        "backgroundColor": "#4F46E5",
+        "foregroundImage": "./assets/logonomy.jpeg",
+        "backgroundImage": "./assets/logonomy.jpeg",
+        "monochromeImage": "./assets/logonomy.jpeg"
+      },
+      "package": "com.malekmlzz.LMS"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/logonomy.jpeg"
+    },
+    "plugins": [
+      "expo-image",
+      "@react-native-community/datetimepicker"
+    ]
   }
 }

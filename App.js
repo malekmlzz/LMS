@@ -1,20 +1,57 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, ActivityIndicator } from 'react-native';
+import AppNavigator from './src/navigation/AppNavigator';
+import { authService } from './src/services/api/authService';
+import { storage } from './src/utils/storage';
+import { COLORS } from './src/constants/colors';
 
 export default function App() {
-  return (
-    <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
-  );
-}
+  const [isLoading, setIsLoading] = useState(true);
+  const [initialRoute, setInitialRoute] = useState('Landing');  // ← پیش‌فرض Landing
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    try {
+      const token = await storage.getToken();
+      const user = await storage.getUser();
+      
+      if (token && user) {
+        const isValid = await authService.checkAuth();
+        if (isValid) {
+          if (user.role === 'admin') {
+            setInitialRoute('AdminTabs');
+          } else if (user.role === 'teacher') {
+            setInitialRoute('TeacherTabs');
+          } else if (user.role === 'student') {
+            setInitialRoute('StudentTabs');
+          } else {
+            setInitialRoute('Landing');
+          }
+        } else {
+          await storage.clearAll();
+          setInitialRoute('Landing');
+        }
+      } else {
+        setInitialRoute('Landing');
+      }
+    } catch (error) {
+      console.error('Auth check error:', error);
+      setInitialRoute('Landing');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.white }}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
+
+  return <AppNavigator initialRoute={initialRoute} />;
+}

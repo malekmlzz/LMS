@@ -1,0 +1,694 @@
+import React, { useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  Modal,
+} from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import DateTimePickerModal from 'react-native-modal-datetime-picker';
+import { COLORS } from '../../constants/colors';
+import { teacherPanelService } from '../../services/api/teacherPanelService';
+import { Loading } from '../../components/feedback/Loading';
+import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
+
+const TeacherClassDetailScreen = ({ route, navigation }) => {
+  const { classId, className } = route.params;
+  const [students, setStudents] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [isDatePickerVisible, setDatePickerVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  
+  // Modal states for grade
+  const [gradeModalVisible, setGradeModalVisible] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [examType, setExamType] = useState('quiz');
+  const [score, setScore] = useState('');
+  const [gradeSubmitting, setGradeSubmitting] = useState(false);
+  
+  // Attendance data for current date
+  const [attendanceData, setAttendanceData] = useState({});
+
+  const formatDateForAPI = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const formatDisplayDate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}/${month}/${day}`;
+  };
+
+  const loadStudents = async () => {
+    try {
+      console.log(`Loading students for class ${classId}...`);
+      const data = await teacherPanelService.getClassStudents(classId);
+      console.log('Students with grades:', data);
+      setStudents(data);
+      
+      // بارگذاری وضعیت حضور غیاب برای تاریخ انتخاب شده
+      await loadAttendanceForDate(selectedDate);
+    } catch (error) {
+      console.error('Load students error:', error);
+      Alert.alert('خطا', error.message);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const loadAttendanceForDate = async (date) => {
+    try {
+      const dateKey = formatDateForAPI(date);
+      console.log(`Loading attendance for date: ${dateKey}`);
+      
+      const attendance = await teacherPanelService.getAttendanceByClassAndDate(classId, dateKey);
+      console.log('Attendance data:', attendance);
+      
+      const attendanceMap = {};
+      attendance.forEach(item => {
+        attendanceMap[item.student_id] = item.status;
+      });
+      setAttendanceData(attendanceMap);
+    } catch (error) {
+      console.error('Load attendance error:', error);
+      setAttendanceData({});
+    }
+  };
+
+  useFocusEffect(useCallback(() => { loadStudents(); }, [classId]));
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadStudents();
+  };
+
+  const handleAttendanceUpdate = async (studentId, status) => {
+    try {
+      const dateKey = formatDateForAPI(selectedDate);
+      console.log(`Recording attendance: student ${studentId}, date ${dateKey}, status ${status}`);
+      
+      await teacherPanelService.recordAttendance(classId, studentId, dateKey, status);
+      
+      setAttendanceData(prev => ({
+        ...prev,
+        [studentId]: status
+      }));
+      
+      Alert.alert('موفق', 'وضعیت حضور با موفقیت ثبت شد');
+    } catch (error) {
+      console.error('Attendance error:', error);
+      Alert.alert('خطا', error.message);
+    }
+  };
+
+  const handleGradeSubmit = async () => {
+    if (!score || parseFloat(score) < 0 || parseFloat(score) > 20) {
+      Alert.alert('خطا', 'نمره باید بین ۰ تا ۲۰ باشد');
+      return;
+    }
+
+    setGradeSubmitting(true);
+    try {
+      await teacherPanelService.addGrade(classId, selectedStudent.id, examType, parseFloat(score));
+      Alert.alert('موفق', 'نمره با موفقیت ثبت شد');
+      setGradeModalVisible(false);
+      setScore('');
+      setExamType('quiz');
+      setSelectedStudent(null);
+      loadStudents(); // بارگذاری مجدد برای نمایش نمره جدید
+    } catch (error) {
+      Alert.alert('خطا', error.message);
+    } finally {
+      setGradeSubmitting(false);
+    }
+  };
+
+  const openGradeModal = (student) => {
+    setSelectedStudent(student);
+    setScore('');
+    setExamType('quiz');
+    setGradeModalVisible(true);
+  };
+
+  const saveAllAttendances = async () => {
+    const notRecorded = students.filter(s => !attendanceData[s.id]);
+    
+    if (notRecorded.length > 0) {
+      Alert.alert(
+        'توجه',
+        `${notRecorded.length} دانش‌آموز وضعیت ثبت نشده دارد. آیا ادامه می‌دهید؟`,
+        [
+          { text: 'لغو', style: 'cancel' },
+          { text: 'ادامه', onPress: () => performSave() },
+        ]
+      );
+    } else {
+      performSave();
+    }
+  };
+
+  const performSave = () => {
+    const savedCount = Object.keys(attendanceData).length;
+    Alert.alert('موفق', `${savedCount} دانش‌آموز با موفقیت ثبت شد`);
+  };
+
+  // ========== توابع انتخاب تاریخ ==========
+  const showDatePicker = () => {
+    setDatePickerVisible(true);
+  };
+
+  const hideDatePicker = () => {
+    setDatePickerVisible(false);
+  };
+
+  const handleConfirmDate = (date) => {
+    hideDatePicker();
+    if (date) {
+      console.log(`Date selected: ${formatDisplayDate(date)}`);
+      setSelectedDate(date);
+      // بارگذاری حضور غیاب برای تاریخ جدید
+      loadAttendanceForDate(date);
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'present': return COLORS.success;
+      case 'absent': return COLORS.error;
+      case 'late': return COLORS.warning;
+      default: return COLORS.border;
+    }
+  };
+
+  const getStatusText = (status) => {
+    switch (status) {
+      case 'present': return 'حاضر';
+      case 'absent': return 'غایب';
+      case 'late': return 'تأخیر';
+      default: return 'ثبت نشده';
+    }
+  };
+
+  const getExamTypeLabel = (type) => {
+    switch (type) {
+      case 'quiz': return 'آزمون';
+      case 'homework': return 'تکلیف';
+      case 'midterm': return 'میان‌ترم';
+      case 'final': return 'پایان‌ترم';
+      default: return type;
+    }
+  };
+
+  const renderStudentCard = ({ item }) => {
+    const currentStatus = attendanceData[item.id];
+    
+    return (
+      <View style={styles.studentCard}>
+        <View style={styles.studentHeader}>
+          <View style={styles.studentInfo}>
+            <Text style={styles.studentName}>{item.full_name}</Text>
+            <Text style={styles.studentUsername}>👤 {item.username}</Text>
+            {item.grade && (
+              <Text style={styles.studentGrade}>📚 پایه: {item.grade}</Text>
+            )}
+          </View>
+          <View style={styles.attendanceButtons}>
+            <TouchableOpacity
+              style={[
+                styles.attendanceBtn,
+                currentStatus === 'present' && styles.attendanceBtnActive,
+                { backgroundColor: currentStatus === 'present' ? COLORS.success : COLORS.background }
+              ]}
+              onPress={() => handleAttendanceUpdate(item.id, 'present')}
+            >
+              <Text style={[
+                styles.attendanceBtnText,
+                currentStatus === 'present' && styles.attendanceBtnTextActive
+              ]}>حاضر</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.attendanceBtn,
+                currentStatus === 'absent' && styles.attendanceBtnActive,
+                { backgroundColor: currentStatus === 'absent' ? COLORS.error : COLORS.background }
+              ]}
+              onPress={() => handleAttendanceUpdate(item.id, 'absent')}
+            >
+              <Text style={[
+                styles.attendanceBtnText,
+                currentStatus === 'absent' && styles.attendanceBtnTextActive
+              ]}>غایب</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.attendanceBtn,
+                currentStatus === 'late' && styles.attendanceBtnActive,
+                { backgroundColor: currentStatus === 'late' ? COLORS.warning : COLORS.background }
+              ]}
+              onPress={() => handleAttendanceUpdate(item.id, 'late')}
+            >
+              <Text style={[
+                styles.attendanceBtnText,
+                currentStatus === 'late' && styles.attendanceBtnTextActive
+              ]}>تأخیر</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        
+        {/* نمایش نمرات */}
+        <View style={styles.gradesContainer}>
+          <Text style={styles.gradesTitle}>📝 نمرات:</Text>
+          <View style={styles.gradesList}>
+            {item.grades && item.grades.length > 0 ? (
+              item.grades.map((grade, index) => (
+                <View key={index} style={styles.gradeTag}>
+                  <Text style={styles.gradeTagText}>
+                    {getExamTypeLabel(grade.exam_type)}: {grade.score}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.noGradesText}>هنوز نمره‌ای ثبت نشده است</Text>
+            )}
+          </View>
+          
+          {/* میانگین نمرات */}
+          {item.average !== null && item.average > 0 && (
+            <View style={styles.averageContainer}>
+              <Text style={styles.averageLabel}>میانگین کل:</Text>
+              <Text style={[styles.averageValue, { 
+                color: item.average >= 17 ? COLORS.success : 
+                       item.average >= 14 ? COLORS.warning : 
+                       COLORS.error 
+              }]}>
+                {item.average}
+              </Text>
+            </View>
+          )}
+        </View>
+        
+        <View style={styles.studentFooter}>
+          <Text style={styles.statusText}>
+            وضعیت حضور: <Text style={{ color: getStatusColor(currentStatus), fontWeight: 'bold' }}>
+              {getStatusText(currentStatus)}
+            </Text>
+          </Text>
+          <TouchableOpacity 
+            style={styles.gradeBtn}
+            onPress={() => openGradeModal(item)}
+          >
+            <Text style={styles.gradeBtnText}>📝 ثبت نمره</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  if (loading) {
+    return <Loading fullScreen />;
+  }
+
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>{className}</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Text style={styles.backBtn}>← بازگشت</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Info Bar with Date Picker */}
+      <View style={styles.infoBar}>
+        <TouchableOpacity style={styles.dateButton} onPress={showDatePicker}>
+          <Text style={styles.dateButtonText}>📅 {formatDisplayDate(selectedDate)}</Text>
+        </TouchableOpacity>
+        <Text style={styles.infoText}>👥 {students.length} دانش‌آموز</Text>
+      </View>
+
+      {/* Date Picker Modal */}
+      <DateTimePickerModal
+        isVisible={isDatePickerVisible}
+        mode="date"
+        onConfirm={handleConfirmDate}
+        onCancel={hideDatePicker}
+        date={selectedDate}
+        locale="fa-IR"
+        headerTextIOS="انتخاب تاریخ"
+        confirmTextIOS="تأیید"
+        cancelTextIOS="لغو"
+        buttonTextColorIOS={COLORS.primary}
+      />
+
+      {/* Save Button */}
+      <TouchableOpacity style={styles.saveBtn} onPress={saveAllAttendances}>
+        <Text style={styles.saveBtnText}>💾 ذخیره حضور غیاب‌ها</Text>
+      </TouchableOpacity>
+
+      {/* Students List */}
+      <FlatList
+        data={students}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={renderStudentCard}
+        contentContainerStyle={styles.listContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>هیچ دانش‌آموزی در این کلاس ثبت نشده است</Text>
+          </View>
+        }
+      />
+
+      {/* Grade Modal */}
+      <Modal
+        visible={gradeModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setGradeModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>ثبت نمره</Text>
+            <Text style={styles.modalSubtitle}>
+              دانش‌آموز: {selectedStudent?.full_name}
+            </Text>
+            
+            <View style={styles.examTypeContainer}>
+              <Text style={styles.examTypeLabel}>نوع امتحان:</Text>
+              <View style={styles.examTypeButtons}>
+                {[
+                  { value: 'quiz', label: 'آزمون' },
+                  { value: 'homework', label: 'تکلیف' },
+                  { value: 'midterm', label: 'میان‌ترم' },
+                  { value: 'final', label: 'پایان‌ترم' },
+                ].map((type) => (
+                  <TouchableOpacity
+                    key={type.value}
+                    style={[
+                      styles.examTypeBtn,
+                      examType === type.value && styles.examTypeBtnActive
+                    ]}
+                    onPress={() => setExamType(type.value)}
+                  >
+                    <Text style={[
+                      styles.examTypeBtnText,
+                      examType === type.value && styles.examTypeBtnTextActive
+                    ]}>{type.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            
+            <Input
+              label="نمره (۰ تا ۲۰)"
+              value={score}
+              onChangeText={setScore}
+              placeholder="مثال: 17.5"
+              keyboardType="numeric"
+            />
+            
+            <View style={styles.modalButtons}>
+              <Button 
+                title="لغو" 
+                onPress={() => setGradeModalVisible(false)} 
+                variant="outline" 
+              />
+              <Button 
+                title="ثبت نمره" 
+                onPress={handleGradeSubmit} 
+                loading={gradeSubmitting}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.background },
+  header: { 
+    backgroundColor: COLORS.primary, 
+    padding: 16, 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    paddingTop: 48,
+  },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.white },
+  backBtn: { fontSize: 14, color: COLORS.white },
+  
+  infoBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: COLORS.white,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    borderRadius: 12,
+    elevation: 1,
+  },
+  dateButton: {
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  dateButtonText: {
+    color: COLORS.white,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  infoText: {
+    fontSize: 13,
+    color: COLORS.gray,
+    fontWeight: '500',
+  },
+  
+  saveBtn: {
+    backgroundColor: COLORS.success,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  saveBtnText: {
+    color: COLORS.white,
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  
+  listContent: { padding: 16, paddingTop: 0 },
+  
+  studentCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 1,
+  },
+  studentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  studentInfo: {
+    flex: 1,
+  },
+  studentName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: COLORS.black,
+  },
+  studentUsername: {
+    fontSize: 12,
+    color: COLORS.gray,
+    marginTop: 2,
+  },
+  studentGrade: {
+    fontSize: 11,
+    color: COLORS.primary,
+    marginTop: 2,
+  },
+  attendanceButtons: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  attendanceBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  attendanceBtnActive: {
+    borderColor: 'transparent',
+  },
+  attendanceBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.gray,
+  },
+  attendanceBtnTextActive: {
+    color: COLORS.white,
+  },
+  
+  gradesContainer: {
+    backgroundColor: COLORS.background,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  gradesTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.primary,
+    marginBottom: 6,
+  },
+  gradesList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  gradeTag: {
+    backgroundColor: COLORS.primaryLight + '20',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  gradeTagText: {
+    fontSize: 11,
+    color: COLORS.primary,
+  },
+  noGradesText: {
+    fontSize: 11,
+    color: COLORS.gray,
+    fontStyle: 'italic',
+  },
+  averageContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  averageLabel: {
+    fontSize: 11,
+    color: COLORS.gray,
+    marginRight: 8,
+  },
+  averageValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  
+  studentFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  statusText: {
+    fontSize: 12,
+    color: COLORS.gray,
+  },
+  gradeBtn: {
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  gradeBtnText: {
+    fontSize: 12,
+    color: COLORS.white,
+    fontWeight: '600',
+  },
+  
+  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
+  emptyText: { fontSize: 14, color: COLORS.gray },
+  
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '85%',
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: COLORS.gray,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  examTypeContainer: {
+    marginBottom: 16,
+  },
+  examTypeLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.black,
+    marginBottom: 8,
+  },
+  examTypeButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  examTypeBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: COLORS.border,
+  },
+  examTypeBtnActive: {
+    backgroundColor: COLORS.primary,
+  },
+  examTypeBtnText: {
+    fontSize: 12,
+    color: COLORS.gray,
+  },
+  examTypeBtnTextActive: {
+    color: COLORS.white,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 16,
+  },
+});
+
+export default TeacherClassDetailScreen;

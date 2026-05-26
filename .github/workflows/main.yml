@@ -1,4 +1,4 @@
-name: Build Android APK (Clean Build)
+name: Build APK with EAS (Local)
 
 on:
   push:
@@ -10,44 +10,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
       - uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'npm'
-          
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-          
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-      
-      - name: Clean npm cache and install dependencies
-        run: |
-          npm cache clean --force
-          rm -rf node_modules
-          npm install
-      
-      - name: Clean Gradle cache
-        run: |
-          rm -rf ~/.gradle/caches/
-          rm -rf android/.gradle
-          
-      - name: Generate Android project
-        run: npx expo prebuild --platform android --clean
-      
-      - name: Build APK with Gradle (Clean)
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew clean
-          ./gradlew assembleRelease --no-build-cache --stacktrace
-          
+      - name: Install dependencies
+        run: npm ci
+      - name: Install EAS
+        run: npm install -g eas-cli
+      - name: Build APK
+        run: eas build --platform android --profile preview --local --output ./app.apk
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: android/app/build/outputs/apk/release/*.apk
+          name: my-app-apk
+          path: ./app.apk

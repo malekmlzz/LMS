@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK (Without EAS)
 
 on:
   push:
@@ -27,14 +27,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
       
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
+      - name: Generate Android project
+        run: npx expo prebuild --platform android --clean
       
-      - name: Build APK
-        run: EXPO_TOKEN=${{ secrets.LMSTOKEN }} eas build --platform android --profile preview --local --non-interactive --output ./app.apk
-        
+      - name: Build APK with Gradle
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+          
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: my-app-apk
-          path: ./app.apk
+          name: app-release
+          path: android/app/build/outputs/apk/release/*.apk
